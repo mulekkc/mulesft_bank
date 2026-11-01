@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
+      xmlns:api-gateway="http://www.mulesoft.org/schema/mule/api-gateway"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd
+        http://www.mulesoft.org/schema/mule/api-gateway http://www.mulesoft.org/schema/mule/api-gateway/current/mule-api-gateway.xsd">
+
+    <!-- Configuration Properties -->
+    <configuration-properties doc:name="Configuration properties" file="config/config-dev.yaml" />
+
+    <!-- Process API Listener Config -->
+    <http:listener-config name="customer-proc-httpListenerConfig">
+        <http:listener-connection host="${http.host}" port="${http.port}" />
+    </http:listener-config>
+
+    <!-- HTTP Request Config for Customer Demographics System API -->
+    <http:request-config name="customer-demographics-sys-req-config" 
+                         basePath="${sys.demographics.basePath}" 
+                         responseTimeout="${sys.demographics.timeout}">
+        <http:request-connection host="${sys.demographics.host}" port="${sys.demographics.port}" />
+    </http:request-config>
+
+    <!-- HTTP Request Config for Account Details System API -->
+    <http:request-config name="account-details-sys-req-config" 
+                         basePath="${sys.accounts.basePath}" 
+                         responseTimeout="${sys.accounts.timeout}">
+        <http:request-connection host="${sys.accounts.host}" port="${sys.accounts.port}" />
+    </http:request-config>
+
+    <!-- APIkit Config -->
+    <apikit:config name="customer-proc-apiConfig"
+                   api="api/customer-proc-api.raml"
+                   outboundHeadersMapName="outboundHeaders"
+                   httpStatusVarName="httpStatus" />
+
+    <!-- API Autodiscovery (Step 5) -->
+    <api-gateway:autodiscovery apiId="${api.id}"
+                               ignoreBasePath="true"
+                               doc:name="API Autodiscovery"
+                               flowRef="customer-proc-api-main" />
+
+    <!-- Global Error Handler -->
+    <error-handler name="global-error-handler">
+        <on-error-propagate type="APIKIT:BAD_REQUEST" enableNotifications="true" logException="true">
+            <set-variable variableName="httpStatus" value="400" />
+            <set-payload value='#[output application/json --- {
+                timestamp: now(),
+                status: 400,
+                error: "Bad Request",
+                message: error.description default "Invalid request payload or parameters",
+                correlationId: correlationId
+            }]' />
+        </on-error-propagate>
+
+        <on-error-propagate type="APIKIT:NOT_FOUND" enableNotifications="true" logException="true">
+            <set-variable variableName="httpStatus" value="404" />
+            <set-payload value='#[output application/json --- {
+                timestamp: now(),
+                status: 404,
+                error: "Not Found",
+                message: "Profile resource not found",
+                correlationId: correlationId
+            }]' />
+        </on-error-propagate>
+
+        <on-error-propagate type="HTTP:CONNECTIVITY, HTTP:TIMEOUT" enableNotifications="true" logException="true">
+            <set-variable variableName="httpStatus" value="503" />
+            <set-payload value='#[output application/json --- {
+                timestamp: now(),
+                status: 503,
+                error: "Service Unavailable",
+                message: "Downstream System API is unavailable or timed out: " ++ (error.description default ""),
+                correlationId: correlationId
+            }]' />
+        </on-error-propagate>
+
+        <on-error-propagate type="ANY" enableNotifications="true" logException="true">
+            <set-variable variableName="httpStatus" value="500" />
+            <set-payload value='#[output application/json --- {
+                timestamp: now(),
+                status: 500,
+                error: "Internal Server Error",
+                message: error.description default "An unexpected error occurred in customer process service",
+                correlationId: correlationId
+            }]' />
+        </on-error-propagate>
+    </error-handler>
+
+</mule>

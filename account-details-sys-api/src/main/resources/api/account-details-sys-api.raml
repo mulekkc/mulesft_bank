@@ -1,0 +1,163 @@
+#%RAML 1.0
+title: Account Details System API
+version: v1
+baseUri: http://localhost:8082/api/v1
+mediaType: [application/json]
+
+securitySchemes:
+  client-id-enforcement: !include securitySchemes/clientIdValidation.raml
+
+securedBy: [client-id-enforcement]
+
+types:
+  Account: !include dataTypes/Account.raml
+  ErrorResponse:
+    type: object
+    properties:
+      timestamp: datetime
+      status: integer
+      error: string
+      message: string
+      correlationId: string
+
+traits:
+  standard-errors:
+    responses:
+      400:
+        body:
+          application/json:
+            type: ErrorResponse
+            example:
+              timestamp: "2024-01-15T12:00:00Z"
+              status: 400
+              error: "Bad Request"
+              message: "Invalid payload or parameter provided"
+              correlationId: "e938bf10-8547-4f2a-b73a-4efd55981290"
+      404:
+        body:
+          application/json:
+            type: ErrorResponse
+            example:
+              timestamp: "2024-01-15T12:00:00Z"
+              status: 404
+              error: "Not Found"
+              message: "Account not found"
+              correlationId: "e938bf10-8547-4f2a-b73a-4efd55981290"
+      500:
+        body:
+          application/json:
+            type: ErrorResponse
+            example:
+              timestamp: "2024-01-15T12:00:00Z"
+              status: 500
+              error: "Internal Server Error"
+              message: "Unexpected banking core server error"
+              correlationId: "e938bf10-8547-4f2a-b73a-4efd55981290"
+
+/accounts:
+  post:
+    description: Add new bank account details
+    is: [standard-errors]
+    body:
+      application/json:
+        type: Account
+        example: !include examples/account-example.json
+    responses:
+      201:
+        body:
+          application/json:
+            type: object
+            properties:
+              message: string
+              accountId: string
+              account: Account
+            example:
+              message: "Account created successfully"
+              accountId: "ACC-900123"
+              account:
+                accountId: "ACC-900123"
+                accountNumber: "100098234123"
+                customerId: "CUST-1001"
+                accountType: "SAVINGS"
+                balance: 75000.50
+                currency: "USD"
+                status: "ACTIVE"
+                branchCode: "BR-NYC-01"
+                createdAt: "2024-01-20T09:15:00Z"
+                updatedAt: "2024-01-20T09:15:00Z"
+
+  get:
+    description: Fetch account details (optionally filtered by customerId or status)
+    is: [standard-errors]
+    queryParameters:
+      customerId?:
+        type: string
+        description: Customer ID to retrieve all associated accounts
+        example: "CUST-1001"
+      status?:
+        type: string
+        enum: [ACTIVE, DORMANT, BLOCKED, CLOSED]
+    responses:
+      200:
+        body:
+          application/json:
+            type: Account[]
+            example:
+              - accountId: "ACC-900123"
+                accountNumber: "100098234123"
+                customerId: "CUST-1001"
+                accountType: "SAVINGS"
+                balance: 75000.50
+                currency: "USD"
+                status: "ACTIVE"
+                branchCode: "BR-NYC-01"
+                createdAt: "2024-01-20T09:15:00Z"
+                updatedAt: "2024-01-20T09:15:00Z"
+
+  /{accountId}:
+    uriParameters:
+      accountId:
+        type: string
+        description: Unique bank account ID
+        example: "ACC-900123"
+    
+    get:
+      description: Fetch account details by account ID
+      is: [standard-errors]
+      responses:
+        200:
+          body:
+            application/json:
+              type: Account
+              example: !include examples/account-example.json
+
+    put:
+      description: Update account details by account ID
+      is: [standard-errors]
+      body:
+        application/json:
+          type: Account
+          example: !include examples/account-example.json
+      responses:
+        200:
+          body:
+            application/json:
+              type: object
+              properties:
+                message: string
+                accountId: string
+                account: Account
+              example:
+                message: "Account updated successfully"
+                accountId: "ACC-900123"
+                account:
+                  accountId: "ACC-900123"
+                  accountNumber: "100098234123"
+                  customerId: "CUST-1001"
+                  accountType: "SAVINGS"
+                  balance: 75000.50
+                  currency: "USD"
+                  status: "ACTIVE"
+                  branchCode: "BR-NYC-01"
+                  createdAt: "2024-01-20T09:15:00Z"
+                  updatedAt: "2024-01-20T09:15:00Z"

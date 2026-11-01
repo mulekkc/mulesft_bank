@@ -1,0 +1,278 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
+
+    <!-- SUBFLOW: Add Account Details -->
+	<sub-flow name="add-account-subflow">
+        <logger level="INFO" doc:name="Log Request" message='#[output text/plain --- "[Account Details API] Received Add Account request: " ++ write(payload, "application/json")]' />
+        
+        <ee:transform doc:name="Process &amp; Save Account" doc:id="0590675c-96fc-406a-a651-cc26747f0468">
+            <ee:message>
+            </ee:message>
+            <ee:variables>
+				<ee:set-variable variableName="accountData" ><![CDATA[%dw 2.0
+output application/java
+var newAccountId = payload.accountId default ("ACC-" ++ (randomInt(900000) + 100000) as String)
+---
+{
+    accountId: newAccountId,
+    accountNumber: payload.accountNumber,
+    customerId: payload.customerId,
+    accountType: payload.accountType,
+    balance: payload.balance default 0.00,
+    currency: payload.currency default "USD",
+    status: payload.status default "ACTIVE",
+    branchCode: payload.branchCode default "BR-MAIN"
+}]]></ee:set-variable>
+            
+</ee:variables>
+        </ee:transform>
+        
+        <db:insert doc:name="Insert" doc:id="d639fc88-dba5-4589-a448-83943c3a9a99" config-ref="Database_Config">
+			<db:sql ><![CDATA[INSERT INTO accounts (account_id, account_number, customer_id, account_type, balance, currency, status, branch_code, created_at, updated_at)
+VALUES (:accountId, :accountNumber, :customerId, :accountType, :balance, :currency, :status, :branchCode, NOW(), NOW())]]></db:sql>
+			<db:input-parameters ><![CDATA[#[vars.accountData]]]></db:input-parameters>
+		</db:insert>
+		<ee:transform doc:name="Account create" doc:id="a8da291d-a058-4f95-9680-f02c0451b6cf" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+var timestamp = now()
+---
+{
+    message: "Account created successfully in MySQL database",
+    accountId: vars.accountData.accountId,
+    account: {
+        accountId: vars.accountData.accountId,
+        accountNumber: vars.accountData.accountNumber,
+        customerId: vars.accountData.customerId,
+        accountType: vars.accountData.accountType,
+        balance: vars.accountData.balance as Number,
+        currency: vars.accountData.currency,
+        status: vars.accountData.status,
+        branchCode: vars.accountData.branchCode,
+        createdAt: timestamp,
+        updatedAt: timestamp
+    }
+}]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="httpStatus" ><![CDATA[201]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<logger level="INFO" doc:name="Log Response" message='#[output text/plain --- "[Account Details API] Successfully inserted account: " ++ (vars.accountData.accountId default "")]' />
+    </sub-flow>
+
+    <!-- SUBFLOW: Fetch Accounts (by Customer ID or all) -->
+    <sub-flow name="fetch-accounts-subflow">
+        <logger level="INFO" doc:name="Log Request" message='#[output text/plain --- "[Account Details API] Fetching accounts with query: " ++ write(attributes.queryParams, "application/json")]' />
+        
+        <db:select doc:name="Query Accounts from MySQL" doc:id="41b04770-8121-413e-8f95-2ac305b1d7af" config-ref="Database_Config">
+			<db:sql ><![CDATA[SELECT 
+    account_id AS accountId,
+    account_number AS accountNumber,
+    customer_id AS customerId,
+    account_type AS accountType,
+    balance,
+    currency,
+    status,
+    branch_code AS branchCode,
+    created_at AS createdAt,
+    updated_at AS updatedAt
+FROM accounts
+WHERE (:customerId IS NULL OR customer_id = :customerId)
+  AND (:status IS NULL OR status = :status)]]></db:sql>
+			<db:input-parameters ><![CDATA[#[output application/java --- {
+    customerId: attributes.queryParams.customerId,
+    status: attributes.queryParams.status
+}]]]></db:input-parameters>
+		</db:select>
+		<ee:transform doc:name="Filter Accounts Repository">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload map (item) -> {
+    accountId: item.accountId,
+    accountNumber: item.accountNumber,
+    customerId: item.customerId,
+    accountType: item.accountType,
+    balance: item.balance as Number,
+    currency: item.currency,
+    status: item.status,
+    branchCode: item.branchCode,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+		<logger level="INFO" doc:name="Log Result Size" doc:id="05fbdbf3-46ff-44ca-8d58-40ab266ec3ed" message='#[output text/plain --- "[Account Details API] Retrieved " ++ (sizeOf(payload) as String) ++ " account(s) from MySQL"]'/>
+    
+</sub-flow>
+
+    <!-- SUBFLOW: Fetch Account by ID -->
+    <sub-flow name="fetch-account-by-id-subflow">
+		<logger level="INFO" doc:name="Log Request" message='#[output text/plain --- "[Account Details API] Fetching account by ID: " ++ (attributes.uriParams.accountId default "")]' />
+        
+        <db:select doc:name="Query Account by ID from MySQL" doc:id="993270d6-b600-40d6-bb54-8e19ddd073df" config-ref="Database_Config">
+			<db:sql ><![CDATA[SELECT 
+    account_id AS accountId,
+    account_number AS accountNumber,
+    customer_id AS customerId,
+    account_type AS accountType,
+    balance,
+    currency,
+    status,
+    branch_code AS branchCode,
+    created_at AS createdAt,
+    updated_at AS updatedAt
+FROM accounts
+WHERE account_id = :accountId]]></db:sql>
+			<db:input-parameters ><![CDATA[#[output application/java --- {
+    accountId: attributes.uriParams.accountId
+}]]]></db:input-parameters>
+		</db:select>
+		<choice doc:name="Choice" doc:id="e6ff75cf-5504-4b87-8964-6905f1ccf6f4" >
+			<when expression="#[sizeOf(payload) &gt; 0]">
+				<set-variable value="200" doc:name="Set httpStatus 200" doc:id="9883fcf8-8843-4637-8940-967637cce5c6" variableName="httpStatus"/>
+				<ee:transform doc:name="Transform Account Details" doc:id="7b15c487-8c4a-4e7b-a533-b28f7957b6b8" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+var item = payload[0]
+---
+{
+    accountId: item.accountId,
+    accountNumber: item.accountNumber,
+    customerId: item.customerId,
+    accountType: item.accountType,
+    balance: item.balance as Number,
+    currency: item.currency,
+    status: item.status,
+    branchCode: item.branchCode,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<logger level="INFO" doc:name="Log Response" doc:id="ef639f46-8326-46c0-a51e-f8245e58710c" message='#[output text/plain --- "[Account Details API] Successfully fetched account: " ++ (payload.accountId default "")]'/>
+			</when>
+			<otherwise >
+				<set-variable value="404" doc:name="Set httpStatus 404" doc:id="c74a030b-9d5d-4c74-bcce-3e3c2a8df50e" variableName="httpStatus"/>
+				<ee:transform doc:name="Account Not Found Error" doc:id="696aad2b-0e25-489c-9f6d-1883fe0e249d" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+    timestamp: now(),
+    status: vars.httpStatus,
+    error: "Not Found",
+    message: "Account with ID " ++ (attributes.uriParams.accountId default "") ++ " not found",
+    correlationId: correlationId
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<logger level="INFO" doc:name="Log Response" doc:id="d078bba3-5ed2-4cc9-96d8-105aed1da5d6" message='#[output text/plain --- "[Account Details API] Account not found with ID: " ++ (payload.accountId default "")]'/>
+			</otherwise>
+		</choice>
+    </sub-flow>
+
+    <!-- SUBFLOW: Update Account -->
+    <sub-flow name="update-account-subflow">
+        <set-variable variableName="accountId" value="#[attributes.uriParams.accountId]" doc:name="Set accountId" />
+        <set-variable value="#[payload]" doc:name="updatePayload" doc:id="724e5330-b056-441b-a407-2aedcc2e54a0" variableName="updatePayload"/>
+		<logger level="INFO" doc:name="Log Request" message='#[output text/plain --- "[Account Details API] Updating account ID: " ++ (vars.accountId default "")]' />
+        
+        <db:update doc:name="Update Account in MySQL" doc:id="83ebb635-2763-4fa6-b4f4-f4223f1896f5" config-ref="Database_Config">
+			<db:sql ><![CDATA[UPDATE accounts 
+SET balance = COALESCE(:balance, balance),
+    currency = COALESCE(:currency, currency),
+    account_type = COALESCE(:accountType, account_type),
+    status = COALESCE(:status, status),
+    branch_code = COALESCE(:branchCode, branch_code),
+    updated_at = NOW()
+WHERE account_id = :accountId]]></db:sql>
+			<db:input-parameters ><![CDATA[#[output application/java --- {
+    accountId: vars.accountId,
+    balance: vars.updatePayload.balance,
+    currency: vars.updatePayload.currency,
+    accountType: vars.updatePayload.accountType,
+    status: vars.updatePayload.status,
+    branchCode: vars.updatePayload.branchCode
+}]]]></db:input-parameters>
+		</db:update>
+		<db:select doc:name="Fetch Updated Account" doc:id="dc819c93-97a0-4439-a202-9872d0475b65" config-ref="Database_Config">
+			<db:sql ><![CDATA[SELECT 
+    account_id AS accountId,
+    account_number AS accountNumber,
+    customer_id AS customerId,
+    account_type AS accountType,
+    balance,
+    currency,
+    status,
+    branch_code AS branchCode,
+    created_at AS createdAt,
+    updated_at AS updatedAt
+FROM accounts
+WHERE account_id = :accountId]]></db:sql>
+			<db:input-parameters ><![CDATA[#[output application/java --- {
+    accountId: vars.accountId
+}]]]></db:input-parameters>
+		</db:select>
+		<choice doc:name="Choice" doc:id="c97e8211-b63e-43a7-bb42-e6e45139200d" >
+			<when expression="#[sizeOf(payload) &gt; 0]">
+				<set-variable value="200" doc:name="Set Variable" doc:id="9f8a8251-4d75-491b-92ec-d8e177260eb4" variableName="httpStatus"/>
+				<ee:transform doc:name="Apply Account Updates" doc:id="99666768-0b78-4b7a-a3f4-9fd80ce1962f" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+var item = payload[0]
+---
+{
+    message: "Account updated successfully in MySQL database",
+    accountId: vars.accountId,
+    account: {
+        accountId: item.accountId,
+        accountNumber: item.accountNumber,
+        customerId: item.customerId,
+        accountType: item.accountType,
+        balance: item.balance as Number,
+        currency: item.currency,
+        status: item.status,
+        branchCode: item.branchCode,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt
+    }
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<logger level="INFO" doc:name="Logger" doc:id="51185d55-1e8f-4033-9788-e3a0ff41c06c" message='#[output text/plain --- "[Account Details API] Successfully updated account: " ++ (vars.accountId default "")]'/>
+			</when>
+			<otherwise >
+				<set-variable value="404" doc:name="Set Variable" doc:id="5b35d053-fcfd-4298-83de-f466dd66b9ec" variableName="httpStatus"/>
+				<ee:transform doc:name="Transform Message" doc:id="3f66cd1b-2cf6-4f66-9ffe-015ff2a9396a" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+    timestamp: now(),
+    status: vars.httpStatus,
+    error: "Not Found",
+    message: "Cannot update: Account with ID " ++ (vars.accountId default "") ++ " not found",
+    correlationId: correlationId
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</otherwise>
+		</choice>
+    </sub-flow>
+
+</mule>

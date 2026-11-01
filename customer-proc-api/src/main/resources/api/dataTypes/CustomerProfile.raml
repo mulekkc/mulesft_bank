@@ -1,0 +1,49 @@
+#%RAML 1.0 DataType
+type: object
+properties:
+  customerId:
+    type: string
+    example: "CUST-1001"
+  fullName:
+    type: string
+    example: "John Doe"
+  demographics:
+    type: object
+    properties:
+      email: string
+      phone: string
+      dateOfBirth: date-only
+      address: object
+      status: string
+  accounts:
+    type: array
+    items:
+      type: object
+      properties:
+        accountId: string
+        accountNumber: string
+        accountType: string
+        balance: number
+        currency: string
+        status: string
+  financialSummary:
+    type: object
+    properties:
+      totalAccounts: integer
+      totalBalance: number
+      currency: string
+  classification:
+    type: object
+    properties:
+      customerType:
+        type: string
+        enum: [A, B, C, D]
+        example: "A"
+      tierName:
+        type: string
+        example: "Platinum / High Net Worth"
+      tierBenefits:
+        type: string[]
+        example: ["Dedicated Relationship Manager", "Zero International Wire Fees", "Airport Lounge Access"]
+      evaluatedAt:
+        type: datetime

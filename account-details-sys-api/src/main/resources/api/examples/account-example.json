@@ -1,0 +1,12 @@
+{
+  "accountId": "ACC-900123",
+  "accountNumber": "100098234123",
+  "customerId": "CUST-1001",
+  "accountType": "SAVINGS",
+  "balance": 75000.50,
+  "currency": "USD",
+  "status": "ACTIVE",
+  "branchCode": "BR-NYC-01",
+  "createdAt": "2024-01-20T09:15:00Z",
+  "updatedAt": "2024-01-20T09:15:00Z"
+}

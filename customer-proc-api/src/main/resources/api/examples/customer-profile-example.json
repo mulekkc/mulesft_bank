@@ -1,0 +1,51 @@
+{
+  "customerId": "CUST-1001",
+  "fullName": "John Doe",
+  "demographics": {
+    "email": "john.doe@example.com",
+    "phone": "+1-555-234-5678",
+    "dateOfBirth": "1988-06-15",
+    "address": {
+      "street": "123 Financial Way",
+      "city": "New York",
+      "state": "NY",
+      "postalCode": "10001",
+      "country": "USA"
+    },
+    "status": "ACTIVE"
+  },
+  "accounts": [
+    {
+      "accountId": "ACC-900123",
+      "accountNumber": "100098234123",
+      "accountType": "CHECKING",
+      "balance": 35000.00,
+      "currency": "USD",
+      "status": "ACTIVE"
+    },
+    {
+      "accountId": "ACC-900124",
+      "accountNumber": "100098234124",
+      "accountType": "INVESTMENT",
+      "balance": 75000.50,
+      "currency": "USD",
+      "status": "ACTIVE"
+    }
+  ],
+  "financialSummary": {
+    "totalAccounts": 2,
+    "totalBalance": 110000.50,
+    "currency": "USD"
+  },
+  "classification": {
+    "customerType": "A",
+    "tierName": "Platinum / High Net Worth",
+    "tierBenefits": [
+      "Dedicated Relationship Manager",
+      "Zero International Wire Fees",
+      "Exclusive Investment Advisory",
+      "Unlimited Airport Lounge Access"
+    ],
+    "evaluatedAt": "2024-01-20T10:30:00Z"
+  }
+}

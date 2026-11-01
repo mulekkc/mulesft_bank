@@ -1,0 +1,195 @@
+#%RAML 1.0
+title: Customer Demographics System API
+version: v1
+baseUri: http://localhost:8081/api/v1
+mediaType: [application/json]
+
+securitySchemes:
+  client-id-enforcement: !include securitySchemes/clientIdValidation.raml
+
+securedBy: [client-id-enforcement]
+
+types:
+  Customer: !include dataTypes/Customer.raml
+  ErrorResponse:
+    type: object
+    properties:
+      timestamp: datetime
+      status: integer
+      error: string
+      message: string
+      correlationId: string
+
+traits:
+  standard-errors:
+    responses:
+      400:
+        body:
+          application/json:
+            type: ErrorResponse
+            example:
+              timestamp: "2024-01-15T12:00:00Z"
+              status: 400
+              error: "Bad Request"
+              message: "Invalid payload provided"
+              correlationId: "4f73a5a1-7c5e-4b92-8db8-cfd32e9432a1"
+      404:
+        body:
+          application/json:
+            type: ErrorResponse
+            example:
+              timestamp: "2024-01-15T12:00:00Z"
+              status: 404
+              error: "Not Found"
+              message: "Resource not found"
+              correlationId: "4f73a5a1-7c5e-4b92-8db8-cfd32e9432a1"
+      500:
+        body:
+          application/json:
+            type: ErrorResponse
+            example:
+              timestamp: "2024-01-15T12:00:00Z"
+              status: 500
+              error: "Internal Server Error"
+              message: "Unexpected server error"
+              correlationId: "4f73a5a1-7c5e-4b92-8db8-cfd32e9432a1"
+
+/customers:
+  post:
+    description: Create a new customer demographics record
+    is: [standard-errors]
+    body:
+      application/json:
+        type: Customer
+        example: !include examples/customer-example.json
+    responses:
+      201:
+        body:
+          application/json:
+            type: object
+            properties:
+              message: string
+              customerId: string
+              customer: Customer
+            example:
+              message: "Customer created successfully"
+              customerId: "CUST-1001"
+              customer:
+                customerId: "CUST-1001"
+                firstName: "John"
+                lastName: "Doe"
+                email: "john.doe@example.com"
+                phone: "+1-555-234-5678"
+                dateOfBirth: "1988-06-15"
+                address:
+                  street: "123 Financial Way"
+                  city: "New York"
+                  state: "NY"
+                  postalCode: "10001"
+                  country: "USA"
+                status: "ACTIVE"
+                createdAt: "2024-01-15T10:00:00Z"
+                updatedAt: "2024-01-15T10:00:00Z"
+  
+  get:
+    description: Search customer records by email, name or status
+    is: [standard-errors]
+    queryParameters:
+      email?:
+        type: string
+        description: Search by customer email
+      name?:
+        type: string
+        description: Search by first or last name
+      status?:
+        type: string
+        enum: [ACTIVE, INACTIVE, SUSPENDED]
+    responses:
+      200:
+        body:
+          application/json:
+            type: Customer[]
+            example:
+              - customerId: "CUST-1001"
+                firstName: "John"
+                lastName: "Doe"
+                email: "john.doe@example.com"
+                phone: "+1-555-234-5678"
+                dateOfBirth: "1988-06-15"
+                address:
+                  street: "123 Financial Way"
+                  city: "New York"
+                  state: "NY"
+                  postalCode: "10001"
+                  country: "USA"
+                status: "ACTIVE"
+                createdAt: "2024-01-15T10:00:00Z"
+                updatedAt: "2024-01-15T10:00:00Z"
+
+  /{customerId}:
+    uriParameters:
+      customerId:
+        type: string
+        description: Unique customer identifier
+        example: "CUST-1001"
+    
+    get:
+      description: Retrieve customer demographics by ID
+      is: [standard-errors]
+      responses:
+        200:
+          body:
+            application/json:
+              type: Customer
+              example: !include examples/customer-example.json
+    
+    put:
+      description: Update customer demographics by ID
+      is: [standard-errors]
+      body:
+        application/json:
+          type: Customer
+          example: !include examples/customer-example.json
+      responses:
+        200:
+          body:
+            application/json:
+              type: object
+              properties:
+                message: string
+                customerId: string
+                customer: Customer
+              example:
+                message: "Customer updated successfully"
+                customerId: "CUST-1001"
+                customer:
+                  customerId: "CUST-1001"
+                  firstName: "John"
+                  lastName: "Doe"
+                  email: "john.doe@example.com"
+                  phone: "+1-555-234-5678"
+                  dateOfBirth: "1988-06-15"
+                  address:
+                    street: "123 Financial Way"
+                    city: "New York"
+                    state: "NY"
+                    postalCode: "10001"
+                    country: "USA"
+                  status: "ACTIVE"
+                  createdAt: "2024-01-15T10:00:00Z"
+                  updatedAt: "2024-01-15T10:00:00Z"
+    
+    delete:
+      description: Delete customer demographics record by ID
+      is: [standard-errors]
+      responses:
+        200:
+          body:
+            application/json:
+              type: object
+              properties:
+                message: string
+                customerId: string
+              example:
+                message: "Customer CUST-1001 deleted successfully"
+                customerId: "CUST-1001"

@@ -1,0 +1,17 @@
+http:
+  port: "8082"
+  host: "0.0.0.0"
+
+api:
+  id: "21260832" # API Manager Instance ID (populated in Step 5)
+  version: "v1"
+
+app:
+  name: "account-details-sys-api"
+  
+db:
+  host: "mysql-11d2ae4d-durgakkcode-1b48.h.aivencloud.com"
+  port: "23005"
+  user: "avnadmin"
+  password: ""
+  database: "account_details"

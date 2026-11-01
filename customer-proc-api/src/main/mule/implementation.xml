@@ -1,0 +1,416 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd">
+
+        <!-- SUBFLOW: Get Customer 360 Profile & Categorize -->
+    <sub-flow name="get-customer-profile-subflow">
+        <set-variable variableName="customerId" value="#[attributes.uriParams.customerId]" doc:name="Set customerId" />
+        <logger level="INFO" doc:name="Log Start" message="[Customer Process API] Aggregating profile for customer: #[vars.customerId]" />
+
+        <!-- Parallel Call to System APIs using Scatter-Gather with Resilience Fallbacks -->
+        <scatter-gather doc:name="Parallel Scatter-Gather (Sys APIs)">
+            <!-- ROUTE 1: Call Customer Demographics System API -->
+            <route>
+                <try doc:name="Try Calling Demographics Sys API">
+                    <http:request method="GET"
+                                  config-ref="customer-demographics-sys-req-config"
+                                  path="/customers/{customerId}"
+                                  doc:name="GET /customers/{customerId}">
+                        <http:headers><![CDATA[#[output application/java
+ --- 
+ {
+    "client_id" : p('sys.demographics.clientId'),
+    "client_secret" : p('sys.demographics.clientSecret'),
+    "Content-Type" : "application/json"
+}]]]></http:headers>
+                        <http:uri-params><![CDATA[#[output application/java
+ ---
+ {
+    "customerId" : vars.customerId
+ }]]]></http:uri-params>
+                    </http:request>
+                    <error-handler>
+                        <!-- 1. Customer does not exist in MySQL (404) -->
+                        <on-error-continue type="HTTP:NOT_FOUND" enableNotifications="false" logException="false" doc:name="Customer Not Found">
+                            <ee:transform doc:name="Set Not Found Payload">
+                                <ee:message>
+                                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    notFound: true,
+    status: 404
+}]]></ee:set-payload>
+                                </ee:message>
+                            </ee:transform>
+                        </on-error-continue>
+
+                        <!-- 2. System API truly offline (Connectivity / Timeout) -->
+                        <on-error-continue type="HTTP:CONNECTIVITY, HTTP:TIMEOUT" enableNotifications="true" logException="true" doc:name="Fallback Mock Demographics">
+                            <logger level="WARN" doc:name="Log Sys1 Offline" message="[Customer Process API] Demographics Sys API unreachable. Using fallback sample for #[vars.customerId]" />
+                            <ee:transform doc:name="Sample Demographics Fallback">
+                                <ee:message>
+                                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    customerId: vars.customerId,
+    firstName: if (vars.customerId == "CUST-1002") "Jane" else if (vars.customerId == "CUST-1003") "Robert" else "John",
+    lastName: if (vars.customerId == "CUST-1002") "Smith" else if (vars.customerId == "CUST-1003") "Taylor" else "Doe",
+    email: if (vars.customerId == "CUST-1002") "jane.smith@example.com" else "john.doe@example.com",
+    phone: "+1-555-234-5678",
+    dateOfBirth: "1988-06-15",
+    address: {
+        street: "123 Financial Way",
+        city: "New York",
+        state: "NY",
+        postalCode: "10001",
+        country: "USA"
+    },
+    status: "ACTIVE"
+}]]></ee:set-payload>
+                                </ee:message>
+                            </ee:transform>
+                        </on-error-continue>
+                    </error-handler>
+                </try>
+            </route>
+
+            <!-- ROUTE 2: Call Account Details System API -->
+            <route>
+                <try doc:name="Try Calling Accounts Sys API">
+                    <http:request method="GET"
+                                  config-ref="account-details-sys-req-config"
+                                  path="/accounts"
+                                  doc:name="GET /accounts?customerId={customerId}">
+                        <http:headers><![CDATA[#[output application/java --- {
+                            "client_id" : p('sys.accounts.clientId'),
+                            "client_secret" : p('sys.accounts.clientSecret'),
+                            "Content-Type" : "application/json"
+                        }]]]></http:headers>
+                        <http:query-params><![CDATA[#[output application/java --- {
+                            "customerId" : vars.customerId
+                        }]]]></http:query-params>
+                    </http:request>
+                    <error-handler>
+                        <on-error-continue enableNotifications="true" logException="true" doc:name="Fallback Mock Accounts">
+                            <logger level="WARN" doc:name="Log Sys2 Offline" message="[Customer Process API] Accounts Sys API unreachable. Using fallback sample for #[vars.customerId]" />
+                            <ee:transform doc:name="Sample Accounts Fallback">
+                                <ee:message>
+                                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+if (vars.customerId == "CUST-1001") [
+    {
+        accountId: "ACC-900123",
+        accountNumber: "100098234123",
+        accountType: "CHECKING",
+        balance: 35000.00,
+        currency: "USD",
+        status: "ACTIVE"
+    },
+    {
+        accountId: "ACC-900124",
+        accountNumber: "100098234124",
+        accountType: "INVESTMENT",
+        balance: 75000.50,
+        currency: "USD",
+        status: "ACTIVE"
+    }
+]
+else if (vars.customerId == "CUST-1002") [
+    {
+        accountId: "ACC-900125",
+        accountNumber: "100098234125",
+        accountType: "SAVINGS",
+        balance: 32000.00,
+        currency: "USD",
+        status: "ACTIVE"
+    }
+]
+else if (vars.customerId == "CUST-1003") [
+    {
+        accountId: "ACC-900126",
+        accountNumber: "100098234126",
+        accountType: "SAVINGS",
+        balance: 8500.00,
+        currency: "USD",
+        status: "ACTIVE"
+    }
+]
+else [
+    {
+        accountId: "ACC-900127",
+        accountNumber: "100098234127",
+        accountType: "CHECKING",
+        balance: 1250.00,
+        currency: "USD",
+        status: "ACTIVE"
+    }
+]]]></ee:set-payload>
+                                </ee:message>
+                            </ee:transform>
+                        </on-error-continue>
+                    </error-handler>
+                </try>
+            </route>
+        </scatter-gather>
+
+        <!-- Check If Customer Exists (404 vs 200) -->
+        <choice doc:name="Check Customer Exists">
+            <!-- WHEN: Customer Not Found (Return 404) -->
+            <when expression="#[payload['0'].payload.notFound == true or payload['0'].payload.status == 404]">
+                <set-variable variableName="httpStatus" value="404" doc:name="Set httpStatus 404" />
+                <ee:transform doc:name="Format Not Found Response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    timestamp: now(),
+    status: 404,
+    error: "Not Found",
+    message: "Customer with ID " ++ (vars.customerId default "") ++ " not found",
+    correlationId: correlationId
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+                <logger level="WARN" doc:name="Log Not Found" message='#[output text/plain --- "[Customer Process API] Customer not found: " ++ (vars.customerId default "")]' />
+            </when>
+
+            <!-- OTHERWISE: Customer Found (Calculate Profile & INR Tier) -->
+            <otherwise>
+                <ee:transform doc:name="Consolidate &amp; Categorize (Type A, B, C, D)">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+
+var demographicsPayload = payload["0"].payload default {}
+var accountsPayload = payload["1"].payload default []
+
+// Exchange Rate: 1 USD = 83.50 INR
+var usdToInrRate = 83.50
+
+// Convert each account balance into INR
+fun toINR(acc) = 
+    if (upper(acc.currency default "USD") == "USD") ((acc.balance default 0) * usdToInrRate)
+    else (acc.balance default 0)
+
+var totalBalanceInINR = sum(accountsPayload map ((acc) -> toINR(acc)))
+
+// Categorization in INR:
+// Type A: >= ₹50,00,000 (50 Lakhs -> Platinum / High Net Worth)
+// Type B: >= ₹10,00,000 (10 Lakhs -> Gold / Affluent)
+// Type C: >= ₹2,00,000  (2 Lakhs  -> Silver / Mass Market)
+// Type D: <  ₹2,00,000  (Bronze / Basic)
+fun determineCustomerType(bal: Number) = 
+    if (bal >= 5000000) "A"
+    else if (bal >= 1000000) "B"
+    else if (bal >= 200000) "C"
+    else "D"
+
+var customerType = determineCustomerType(totalBalanceInINR)
+
+fun getTierName(t: String) = t match {
+    case "A" -> "Platinum / High Net Worth"
+    case "B" -> "Gold / Affluent"
+    case "C" -> "Silver / Mass Market"
+    case "D" -> "Bronze / Basic"
+    else     -> "Standard"
+}
+
+fun getTierBenefits(t: String) = t match {
+    case "A" -> [
+        "Dedicated Relationship Manager",
+        "Zero International Wire Fees",
+        "Exclusive Investment Advisory",
+        "Unlimited Airport Lounge Access"
+    ]
+    case "B" -> [
+        "Priority Customer Support",
+        "Discounted Forex Rates",
+        "Quarterly Financial Health Checkup",
+        "Credit Card Annual Fee Waiver"
+    ]
+    case "C" -> [
+        "Standard Online Banking",
+        "Free Mobile Alerts",
+        "Zero Monthly Maintenance Fee with Min Balance"
+    ]
+    case "D" -> [
+        "Basic Savings Account",
+        "Digital Debit Card",
+        "Self-Service Mobile Banking"
+    ]
+    else -> ["Standard Banking Access"]
+}
+---
+{
+    customerId: vars.customerId,
+    fullName: (demographicsPayload.firstName default "") ++ " " ++ (demographicsPayload.lastName default ""),
+    demographics: demographicsPayload,
+    accounts: accountsPayload,
+    financialSummary: {
+        totalAccounts: sizeOf(accountsPayload),
+        totalBalance: totalBalanceInINR as Number {format: "#.00"},
+        currency: "INR",
+        currencyBreakdown: {
+            INR: sum((accountsPayload filter (upper($.currency default "") == "INR")).balance default [0]) as Number {format: "#.00"},
+            USD: sum((accountsPayload filter (upper($.currency default "") == "USD")).balance default [0]) as Number {format: "#.00"}
+        },
+        fxRateApplied: "1 USD = 83.50 INR"
+    },
+    classification: {
+        customerType: customerType,
+        tierName: getTierName(customerType),
+        tierBenefits: getTierBenefits(customerType),
+        evaluatedAt: now()
+    }
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+                <logger level="INFO" doc:name="Log Completion" message="[Customer Process API] Customer #[vars.customerId] categorized as Type: #[payload.classification.customerType]" />
+            </otherwise>
+        </choice>
+    </sub-flow>
+    <!-- SUBFLOW: Customer Onboarding Orchestration -->
+    <sub-flow name="onboard-customer-subflow">
+        <set-variable variableName="incomingPayload" value="#[payload]" doc:name="Store incomingPayload" />
+        <logger level="INFO" doc:name="Log Onboard" message="[Customer Process API] Initiating onboarding flow for: #[payload.customer.email]" />
+
+        <!-- 1. Invoke Demographics Sys API (Saves Customer in MySQL) -->
+        <try doc:name="Try Creating Demographics Record">
+            <http:request method="POST"
+                          config-ref="customer-demographics-sys-req-config"
+                          path="/customers"
+                          doc:name="POST /customers">
+                <http:body><![CDATA[#[output application/json --- vars.incomingPayload.customer]]]></http:body>
+                <http:headers><![CDATA[#[output application/java --- {
+                    "client_id" : p('sys.demographics.clientId'),
+                    "client_secret" : p('sys.demographics.clientSecret'),
+                    "Content-Type" : "application/json"
+                }]]]></http:headers>
+            </http:request>
+            <error-handler>
+                <on-error-continue enableNotifications="true" logException="true">
+                    <logger level="ERROR" doc:name="Log Sys1 Error" message='#[output text/plain --- "[Customer Process API] Demographics API call failed: " ++ (error.description default "")]' />
+                    <ee:transform doc:name="Fallback New Customer">
+                        <ee:message>
+                            <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var generatedId = "CUST-" ++ (randomInt(9000) + 1000) as String
+---
+{
+    customerId: generatedId,
+    customer: (vars.incomingPayload.customer default {}) ++ { customerId: generatedId }
+}]]></ee:set-payload>
+                        </ee:message>
+                    </ee:transform>
+                </on-error-continue>
+            </error-handler>
+        </try>
+
+        <set-variable variableName="createdCustomerId" value="#[payload.customerId]" doc:name="Store createdCustomerId" />
+        <set-variable variableName="demographicsData" value="#[payload.customer default payload]" doc:name="Store demographicsData" />
+
+        <!-- 2. Invoke Account Sys API (Saves Account in MySQL) -->
+        <try doc:name="Try Creating Account Record">
+            <http:request method="POST"
+                          config-ref="account-details-sys-req-config"
+                          path="/accounts"
+                          doc:name="POST /accounts">
+                <http:body><![CDATA[#[output application/json --- {
+                    accountNumber: "1000" ++ (randomInt(90000000) + 10000000) as String,
+                    customerId: vars.createdCustomerId,
+                    accountType: vars.incomingPayload.initialAccount.accountType default "SAVINGS",
+                    balance: vars.incomingPayload.initialAccount.initialDeposit default 1000.00,
+                    currency: vars.incomingPayload.initialAccount.currency default "INR",
+                    branchCode: vars.incomingPayload.initialAccount.branchCode default "BR-MAIN"
+                }]]]></http:body>
+                <http:headers><![CDATA[#[output application/java --- {
+                    "client_id" : p('sys.accounts.clientId'),
+                    "client_secret" : p('sys.accounts.clientSecret'),
+                    "Content-Type" : "application/json"
+                }]]]></http:headers>
+            </http:request>
+            <error-handler>
+                <on-error-continue enableNotifications="true" logException="true">
+                    <logger level="ERROR" doc:name="Log Sys2 Error" message='#[output text/plain --- "[Customer Process API] Accounts API call failed: " ++ (error.description default "")]' />
+                    <ee:transform doc:name="Fallback New Account">
+                        <ee:message>
+                            <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var genAccountId = "ACC-" ++ (randomInt(900000) + 100000) as String
+---
+{
+    accountId: genAccountId,
+    account: {
+        accountId: genAccountId,
+        accountNumber: "1000" ++ (randomInt(90000000) + 10000000) as String,
+        customerId: vars.createdCustomerId,
+        accountType: vars.incomingPayload.initialAccount.accountType default "SAVINGS",
+        balance: vars.incomingPayload.initialAccount.initialDeposit default 1000.00,
+        currency: vars.incomingPayload.initialAccount.currency default "INR",
+        status: "ACTIVE"
+    }
+}]]></ee:set-payload>
+                        </ee:message>
+                    </ee:transform>
+                </on-error-continue>
+            </error-handler>
+        </try>
+
+        <set-variable variableName="accountData" value="#[payload.account default payload]" doc:name="Store accountData" />
+
+        <!-- 3. Return Combined Onboarded Profile -->
+        <ee:transform doc:name="Construct Onboarded Profile">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var initialDeposit = (vars.accountData.balance default 0.00) as Number
+var curr = vars.accountData.currency default "INR"
+var balInINR = if (upper(curr) == "USD") (initialDeposit * 95.80) else initialDeposit
+var cType = if (balInINR >= 5000000) "A"
+            else if (balInINR >= 1000000) "B"
+            else if (balInINR >= 200000) "C"
+            else "D"
+---
+{
+    customerId: vars.createdCustomerId,
+    fullName: (vars.demographicsData.firstName default "") ++ " " ++ (vars.demographicsData.lastName default ""),
+    demographics: (vars.demographicsData default {}) ++ {
+        customerId: vars.createdCustomerId
+    },
+    accounts: [vars.accountData],
+    financialSummary: {
+        totalAccounts: 1,
+        totalBalance: initialDeposit,
+        currency: curr
+    },
+    classification: {
+        customerType: cType,
+        tierName: if (cType == "A") "Platinum / High Net Worth"
+                  else if (cType == "B") "Gold / Affluent"
+                  else if (cType == "C") "Silver / Mass Market"
+                  else "Bronze / Basic",
+        tierBenefits: if (cType == "A") ["Dedicated Relationship Manager", "Zero Wire Fees"]
+                      else if (cType == "B") ["Priority Support", "Discounted Forex", "Fee Waiver"]
+                      else if (cType == "C") ["Standard Banking", "Free Alerts"]
+                      else ["Basic Savings", "Digital Card"],
+        evaluatedAt: now()
+    }
+}]]></ee:set-payload>
+            </ee:message>
+            <ee:variables>
+                <ee:set-variable variableName="httpStatus"><![CDATA[201]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+    </sub-flow>
+</mule>

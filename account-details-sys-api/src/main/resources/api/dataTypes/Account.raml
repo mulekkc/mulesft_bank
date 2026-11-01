@@ -1,0 +1,42 @@
+#%RAML 1.0 DataType
+type: object
+properties:
+  accountId?:
+    type: string
+    example: "ACC-900123"
+  accountNumber:
+    type: string
+    required: true
+    example: "100098234123"
+  customerId:
+    type: string
+    required: true
+    example: "CUST-1001"
+  accountType:
+    type: string
+    required: true
+    enum: [SAVINGS, CHECKING, INVESTMENT, CREDIT]
+    example: "SAVINGS"
+  balance:
+    type: number
+    required: true
+    minimum: 0
+    example: 75000.50
+  currency:
+    type: string
+    required: true
+    minLength: 3
+    maxLength: 3
+    example: "USD"
+  status?:
+    type: string
+    enum: [ACTIVE, DORMANT, BLOCKED, CLOSED]
+    default: "ACTIVE"
+  branchCode:
+    type: string
+    required: true
+    example: "BR-NYC-01"
+  createdAt?:
+    type: datetime
+  updatedAt?:
+    type: datetime

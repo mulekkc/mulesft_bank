@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
+      xmlns:api-gateway="http://www.mulesoft.org/schema/mule/api-gateway" xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd
+        http://www.mulesoft.org/schema/mule/api-gateway http://www.mulesoft.org/schema/mule/api-gateway/current/mule-api-gateway.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
+
+    <!-- Configuration Properties -->
+    <configuration-properties doc:name="Configuration properties" file="config/config-dev.yaml" />
+
+    <!-- HTTP Listener Config -->
+    <http:listener-config name="account-details-httpListenerConfig">
+        <http:listener-connection host="${http.host}" port="${http.port}" />
+    </http:listener-config>
+
+    <!-- APIkit Config -->
+    <apikit:config name="account-details-apiConfig"
+                   api="api/account-details-sys-api.raml"
+                   outboundHeadersMapName="outboundHeaders"
+                   httpStatusVarName="httpStatus" />
+
+    <!-- API Autodiscovery (Step 5) -->
+    <api-gateway:autodiscovery apiId="${api.id}"
+                               ignoreBasePath="true"
+                               doc:name="API Autodiscovery"
+                               flowRef="account-details-sys-api-main" />
+
+    <!-- Global Error Handler -->
+    <db:config name="Database_Config" doc:name="Database Config" doc:id="5b223572-ceae-4f9f-9769-87f88f1a9c71" >
+		<db:my-sql-connection host="${db.host}" port="${db.port}" user="${db.user}" password="${db.password}" database="${db.database}" />
+	</db:config>
+	<error-handler name="global-error-handler">
+        <on-error-propagate type="APIKIT:BAD_REQUEST" enableNotifications="true" logException="true">
+            <set-variable variableName="httpStatus" value="400" />
+            <set-payload value='#[output application/json --- {
+                timestamp: now(),
+                status: 400,
+                error: "Bad Request",
+                message: error.description default "Invalid request payload or parameters",
+                correlationId: correlationId
+            }]' />
+        </on-error-propagate>
+
+        <on-error-propagate type="APIKIT:NOT_FOUND" enableNotifications="true" logException="true">
+            <set-variable variableName="httpStatus" value="404" />
+            <set-payload value='#[output application/json --- {
+                timestamp: now(),
+                status: 404,
+                error: "Not Found",
+                message: "Account resource not found",
+                correlationId: correlationId
+            }]' />
+        </on-error-propagate>
+
+        <on-error-propagate type="APIKIT:METHOD_NOT_ALLOWED" enableNotifications="true" logException="true">
+            <set-variable variableName="httpStatus" value="405" />
+            <set-payload value='#[output application/json --- {
+                timestamp: now(),
+                status: 405,
+                error: "Method Not Allowed",
+                message: "HTTP method is not allowed on this endpoint",
+                correlationId: correlationId
+            }]' />
+        </on-error-propagate>
+
+        <on-error-propagate type="APIKIT:NOT_ACCEPTABLE" enableNotifications="true" logException="true">
+            <set-variable variableName="httpStatus" value="406" />
+            <set-payload value='#[output application/json --- {
+                timestamp: now(),
+                status: 406,
+                error: "Not Acceptable",
+                message: "Not acceptable response media type",
+                correlationId: correlationId
+            }]' />
+        </on-error-propagate>
+
+        <on-error-propagate type="APIKIT:UNSUPPORTED_MEDIA_TYPE" enableNotifications="true" logException="true">
+            <set-variable variableName="httpStatus" value="415" />
+            <set-payload value='#[output application/json --- {
+                timestamp: now(),
+                status: 415,
+                error: "Unsupported Media Type",
+                message: "Unsupported payload media type",
+                correlationId: correlationId
+            }]' />
+        </on-error-propagate>
+
+        <on-error-propagate type="ANY" enableNotifications="true" logException="true">
+            <set-variable variableName="httpStatus" value="500" />
+            <set-payload value='#[output application/json --- {
+                timestamp: now(),
+                status: 500,
+                error: "Internal Server Error",
+                message: error.description default "An unexpected server error occurred in account service",
+                correlationId: correlationId
+            }]' />
+        </on-error-propagate>
+    </error-handler>
+
+</mule>

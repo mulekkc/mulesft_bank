@@ -1,0 +1,87 @@
+#%RAML 1.0
+title: Customer Process API
+version: v1
+baseUri: http://localhost:8083/api/v1
+mediaType: [application/json]
+
+securitySchemes:
+  client-id-enforcement: !include securitySchemes/clientIdValidation.raml
+
+securedBy: [client-id-enforcement]
+
+types:
+  CustomerProfile: !include dataTypes/CustomerProfile.raml
+  ErrorResponse:
+    type: object
+    properties:
+      timestamp: datetime
+      status: integer
+      error: string
+      message: string
+      correlationId: string
+
+traits:
+  standard-errors:
+    responses:
+      400:
+        body:
+          application/json:
+            type: ErrorResponse
+      404:
+        body:
+          application/json:
+            type: ErrorResponse
+      500:
+        body:
+          application/json:
+            type: ErrorResponse
+
+/customers:
+  /{customerId}/profile:
+    uriParameters:
+      customerId:
+        type: string
+        description: Customer ID to generate consolidated 360 profile
+        example: "CUST-1001"
+    get:
+      description: Aggregate demographics and accounts from System APIs, evaluate financial balance, and categorize customer into Type A, B, C, or D.
+      is: [standard-errors]
+      responses:
+        200:
+          body:
+            application/json:
+              type: CustomerProfile
+              example: !include examples/customer-profile-example.json
+
+  /onboard:
+    post:
+      description: Orchestrate customer onboarding across Demographics and Account System APIs
+      is: [standard-errors]
+      body:
+        application/json:
+          type: object
+          properties:
+            customer:
+              type: object
+              required: true
+              properties:
+                firstName: string
+                lastName: string
+                email: string
+                phone: string
+                dateOfBirth: date-only
+                address: object
+            initialAccount:
+              type: object
+              required: true
+              properties:
+                accountType: string
+                initialDeposit: number
+                currency: string
+                branchCode: string
+      responses:
+        201:
+          body:
+            application/json:
+              type: CustomerProfile
+              example: !include examples/customer-profile-example.json

@@ -1,0 +1,377 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:email="http://www.mulesoft.org/schema/mule/email"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/email http://www.mulesoft.org/schema/mule/email/current/mule-email.xsd">
+
+    <!-- SUBFLOW: Create Customer -->
+    <sub-flow name="create-customer-subflow">
+        <logger level="INFO" doc:name="Log Request" message="[Customer Demographics API - MySQL] Received Create Customer request: #[payload]" />
+        
+        <ee:transform doc:name="Prepare Customer Parameters" doc:id="a18cc579-d978-4e59-a6f6-376abbfde93e">
+            <ee:message>
+            </ee:message>
+            <ee:variables>
+				<ee:set-variable variableName="customerData" ><![CDATA[%dw 2.0
+output application/java
+var newCustomerId = payload.customerId default ("CUST-" ++ (randomInt(9000) + 1000) as String)
+---
+{
+    customerId: newCustomerId,
+    firstName: payload.firstName,
+    lastName: payload.lastName,
+    email: payload.email,
+    phone: payload.phone,
+    dateOfBirth: payload.dateOfBirth,
+    street: payload.address.street default "",
+    city: payload.address.city default "",
+    state: payload.address.state default "",
+    postalCode: payload.address.postalCode default "",
+    country: payload.address.country default "",
+    status: payload.status default "ACTIVE"
+}]]></ee:set-variable>
+            
+</ee:variables>
+        </ee:transform>
+        
+        <db:insert doc:name="Insert Customer into MySQL" doc:id="fad23de5-5a33-49c1-bf10-2e2c91003f38" config-ref="Database_Config">
+			<db:sql ><![CDATA[INSERT INTO customers (customer_id, first_name, last_name, email, phone, date_of_birth, street, city, state, postal_code, country, status, created_at, updated_at)
+VALUES (:customerId, :firstName, :lastName, :email, :phone, :dateOfBirth, :street, :city, :state, :postalCode, :country, :status, NOW(), NOW())]]></db:sql>
+			<db:input-parameters ><![CDATA[#[vars.customerData]]]></db:input-parameters>
+		</db:insert>
+		<ee:transform doc:name="Format Created Customer Response" doc:id="4e22f11f-d284-499a-a0ed-8c96469cf6fb" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+var timestamp = now()
+---
+{
+    message: "Customer created successfully in MySQL database",
+    customerId: vars.customerData.customerId,
+    customer: {
+        customerId: vars.customerData.customerId,
+        firstName: vars.customerData.firstName,
+        lastName: vars.customerData.lastName,
+        email: vars.customerData.email,
+        phone: vars.customerData.phone,
+        dateOfBirth: vars.customerData.dateOfBirth,
+        address: {
+            street: vars.customerData.street,
+            city: vars.customerData.city,
+            state: vars.customerData.state,
+            postalCode: vars.customerData.postalCode,
+            country: vars.customerData.country
+        },
+        status: vars.customerData.status,
+        createdAt: timestamp,
+        updatedAt: timestamp
+    }
+}]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="httpStatus" ><![CDATA[201]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<logger level="INFO" doc:name="Log Response" message='#[output text/plain --- "[Customer Demographics API - MySQL] Customer successfully created with ID: " ++ (vars.customerData.customerId default "")]' />
+    </sub-flow>
+
+    <!-- SUBFLOW: Search Customers -->
+    <sub-flow name="search-customers-subflow">
+        <logger level="INFO" doc:name="Log Request" message='#[output text/plain --- "[Customer Demographics API - MySQL] Search customers with query: " ++ write(attributes.queryParams, "application/json")]' />
+        
+        <db:select doc:name="Query Customers from MySQL" doc:id="227c9fdf-5532-4759-80ec-53bdc4b088eb" config-ref="Database_Config">
+			<db:sql ><![CDATA[SELECT 
+    customer_id AS customerId,
+    first_name AS firstName,
+    last_name AS lastName,
+    email,
+    phone,
+    date_of_birth AS dateOfBirth,
+    street,
+    city,
+    state,
+    postal_code AS postalCode,
+    country,
+    status,
+    created_at AS createdAt,
+    updated_at AS updatedAt
+FROM customers
+WHERE (:email IS NULL OR email = :email)
+  AND (:name IS NULL OR first_name LIKE CONCAT('%', :name, '%') OR last_name LIKE CONCAT('%', :name, '%'))
+  AND (:status IS NULL OR status = :status)]]></db:sql>
+			<db:input-parameters ><![CDATA[#[output application/java --- {
+    email: attributes.queryParams.email,
+    name: attributes.queryParams.name,
+    status: attributes.queryParams.status
+}]]]></db:input-parameters>
+		</db:select>
+		<ee:transform doc:name="Format Customers ResultSet">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload map (item) -> {
+    customerId: item.customerId,
+    firstName: item.firstName,
+    lastName: item.lastName,
+    email: item.email,
+    phone: item.phone,
+    dateOfBirth: item.dateOfBirth,
+    address: {
+        street: item.street,
+        city: item.city,
+        state: item.state,
+        postalCode: item.postalCode,
+        country: item.country
+    },
+    status: item.status,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+		<logger level="INFO" doc:name="Log Result Size" doc:id="5d3da1b9-d593-40c0-9ba4-6f637adc74df" message='#[output text/plain --- "[Customer Demographics API - MySQL] Retrieved " ++ sizeOf(payload) ++ " customer(s)"]'/>
+    
+</sub-flow>
+
+    <!-- SUBFLOW: Get Customer by ID -->
+    <sub-flow name="get-customer-by-id-subflow">
+        <set-variable variableName="customerId" value="#[attributes.uriParams.customerId]" doc:name="Set customerId" />
+        <logger level="INFO" doc:name="Log Request" message="[Customer Demographics API] Fetching customer with ID: #[vars.customerId]" />
+        
+        <db:select doc:name="Query Customer by ID from MySQL" doc:id="62820322-ae85-4656-9b31-fdbb19c68f7e" config-ref="Database_Config">
+			<db:sql ><![CDATA[SELECT 
+    customer_id AS customerId,
+    first_name AS firstName,
+    last_name AS lastName,
+    email,
+    phone,
+    date_of_birth AS dateOfBirth,
+    street,
+    city,
+    state,
+    postal_code AS postalCode,
+    country,
+    status,
+    created_at AS createdAt,
+    updated_at AS updatedAt
+FROM customers
+WHERE customer_id = :customerId]]></db:sql>
+			<db:input-parameters ><![CDATA[#[output application/java --- { customerId: vars.customerId }]]]></db:input-parameters>
+		</db:select>
+		<choice doc:name="Choice" doc:id="574a481c-0b1c-4c12-914a-91056841eab1" >
+			<when expression="#[sizeOf(payload) &gt; 0]">
+				<set-variable value="200" doc:name="Set Variable" doc:id="5bb68ae5-30c1-435e-965f-e2aafe2e7e4c" variableName="httpStatus"/>
+				<ee:transform doc:name="Transform Message" doc:id="22bef91d-bc5c-4033-ba5e-4032c4a9d1fe" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+var item = payload[0]
+---
+{
+    customerId: item.customerId,
+    firstName: item.firstName,
+    lastName: item.lastName,
+    email: item.email,
+    phone: item.phone,
+    dateOfBirth: item.dateOfBirth,
+    address: {
+        street: item.street,
+        city: item.city,
+        state: item.state,
+        postalCode: item.postalCode,
+        country: item.country
+    },
+    status: item.status,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<logger level="INFO" doc:name="Log Response" doc:id="3fde9c20-cb70-4866-8f78-e5b37b754a33" message='#[output text/plain --- "[Customer Demographics API] Successfully fetched customer: " ++ (vars.customerId default "")]'/>
+			</when>
+			<otherwise >
+				<set-variable value="404" doc:name="Set Variable" doc:id="74ee0727-4488-40b4-901a-decac8c343ca" variableName="httpStatus"/>
+				<ee:transform doc:name="Transform Message" doc:id="f2d4dace-0f63-41eb-96eb-a450d2d499dd" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+    timestamp: now(),
+    status: vars.httpStatus,
+    error: "Not Found",
+    message: "Customer with ID " ++ (vars.customerId default "") ++ " not found",
+    correlationId: correlationId
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<logger level="INFO" doc:name="Log Not Found" doc:id="6b3d4198-e249-4a6d-810d-1a54fe581003" message='#[output text/plain --- "[Customer Demographics API] Customer not found: " ++ (vars.customerId default "")]'/>
+			</otherwise>
+		</choice>
+    </sub-flow>
+
+    <!-- SUBFLOW: Update Customer -->
+    <sub-flow name="update-customer-subflow">
+        <set-variable variableName="customerId" value="#[attributes.uriParams.customerId]" doc:name="Set customerId" />
+        <set-variable value="#[payload]" doc:name="Store updatePayload" doc:id="1ad18a09-affa-4707-b7fd-9b5542df75a6" variableName="updatePayload"/>
+		<logger level="INFO" doc:name="Log Request" message="[Customer Demographics API] Updating customer #[vars.customerId] with payload: #[payload]" />
+        
+        <db:update doc:name="Update Customer in MySQL" doc:id="955c8918-e416-43c7-ad10-0f5f30518a44" config-ref="Database_Config">
+			<db:sql ><![CDATA[UPDATE customers 
+SET first_name = COALESCE(:firstName, first_name),
+    last_name = COALESCE(:lastName, last_name),
+    email = COALESCE(:email, email),
+    phone = COALESCE(:phone, phone),
+    date_of_birth = COALESCE(:dateOfBirth, date_of_birth),
+    street = COALESCE(:street, street),
+    city = COALESCE(:city, city),
+    state = COALESCE(:state, state),
+    postal_code = COALESCE(:postalCode, postal_code),
+    country = COALESCE(:country, country),
+    status = COALESCE(:status, status),
+    updated_at = NOW()
+WHERE customer_id = :customerId]]></db:sql>
+			<db:input-parameters ><![CDATA[#[output application/java --- {
+    customerId: vars.customerId,
+    firstName: vars.updatePayload.firstName,
+    lastName: vars.updatePayload.lastName,
+    email: vars.updatePayload.email,
+    phone: vars.updatePayload.phone,
+    dateOfBirth: vars.updatePayload.dateOfBirth,
+    street: vars.updatePayload.address.street,
+    city: vars.updatePayload.address.city,
+    state: vars.updatePayload.address.state,
+    postalCode: vars.updatePayload.address.postalCode,
+    country: vars.updatePayload.address.country,
+    status: vars.updatePayload.status
+}]]]></db:input-parameters>
+		</db:update>
+		<db:select doc:name="Fetch Updated Customer" doc:id="ff409cd9-cd16-472d-95fa-30ac07f7ef7b" config-ref="Database_Config">
+			<db:sql ><![CDATA[SELECT 
+    customer_id AS customerId,
+    first_name AS firstName,
+    last_name AS lastName,
+    email,
+    phone,
+    date_of_birth AS dateOfBirth,
+    street,
+    city,
+    state,
+    postal_code AS postalCode,
+    country,
+    status,
+    created_at AS createdAt,
+    updated_at AS updatedAt
+FROM customers
+WHERE customer_id = :customerId]]></db:sql>
+			<db:input-parameters ><![CDATA[#[output application/java --- { customerId: vars.customerId }]]]></db:input-parameters>
+		</db:select>
+		<choice doc:name="Choice" doc:id="02c54968-785c-4b6d-81a0-80060490f710" >
+			<when expression="#[sizeOf(payload) &gt; 0]">
+				<set-variable value="200" doc:name="Set Variable" doc:id="315cc418-8b10-4d90-9f26-c77efd992e98" variableName="httpStatus"/>
+				<ee:transform doc:name="Transform Message" doc:id="fd92d1f7-f241-4b49-aba3-f90ff8347f69" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+var item = payload[0]
+---
+{
+    message: "Customer updated successfully in MySQL database",
+    customerId: vars.customerId,
+    customer: {
+        customerId: item.customerId,
+        firstName: item.firstName,
+        lastName: item.lastName,
+        email: item.email,
+        phone: item.phone,
+        dateOfBirth: item.dateOfBirth,
+        address: {
+            street: item.street,
+            city: item.city,
+            state: item.state,
+            postalCode: item.postalCode,
+            country: item.country
+        },
+        status: item.status,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt
+    }
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<logger level="INFO" doc:name="Log Response" doc:id="d5a68799-4e0b-4511-b770-68d854f640b1" message='#[output text/plain --- "[Customer Demographics API] Successfully updated customer: " ++ (vars.customerId default "")]'/>
+			</when>
+			<otherwise >
+				<set-variable value="404" doc:name="Set Variable" doc:id="ae67500a-5104-43a7-a16b-14da08d96ac8" variableName="httpStatus"/>
+				<ee:transform doc:name="Transform Message" doc:id="414735e8-3c3f-405f-a2dd-f92a387c0fb1" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+    timestamp: now(),
+    status: vars.httpStatus,
+    error: "Not Found",
+    message: "Cannot update: Customer with ID " ++ (vars.customerId default "") ++ " not found",
+    correlationId: correlationId
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<logger level="INFO" doc:name="Log Not Found" doc:id="6b0370dd-4f1e-4ce3-a3f6-99e4f3971173" message='#[output text/plain --- "[Customer Demographics API] Cannot update - customer not found: " ++ (vars.customerId default "")]'/>
+			</otherwise>
+		</choice>
+    </sub-flow>
+
+    <!-- SUBFLOW: Delete Customer -->
+    <sub-flow name="delete-customer-subflow">
+        <set-variable variableName="customerId" value="#[attributes.uriParams.customerId]" doc:name="Set customerId" />
+		<db:delete doc:name="Delete Customer from MySQL" doc:id="0bf15be8-78ac-454a-8093-ac9cbc4bde78" config-ref="Database_Config">
+			<db:sql ><![CDATA[DELETE FROM customers WHERE customer_id = :customerId]]></db:sql>
+			<db:input-parameters ><![CDATA[#[output application/java --- { customerId: vars.customerId }]]]></db:input-parameters>
+		</db:delete>
+		<logger level="INFO" doc:name="Log Request" message="[Customer Demographics API] Deleting customer: #[vars.customerId]" />
+        
+        <choice doc:name="Choice" doc:id="807bf598-8555-44a2-9a79-48120923f13f" >
+			<when expression="#[payload &gt; 0]">
+				<set-variable value="200" doc:name="Set Variable" doc:id="dabd70a1-8526-4665-a0b9-19c5411ca072" variableName="httpStatus "/>
+				<ee:transform doc:name="Transform Message" doc:id="0bdf85eb-2cdc-4d78-a79a-02267db0d992" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+    message: "Customer " ++ (vars.customerId default "") ++ " deleted successfully from MySQL database",
+    customerId: vars.customerId
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<logger level="INFO" doc:name="Logger" doc:id="59d317f8-a3c1-4c95-9da0-3c489d1f6043" message="[Customer Demographics API] Successfully deleted customer: #[vars.customerId]"/>
+			</when>
+			<otherwise >
+				<set-variable value="404" doc:name="Set Variable" doc:id="82a5f872-6cd3-4510-8a8e-5e21dd5de76a" variableName="httpStatus "/>
+				<ee:transform doc:name="Transform Message" doc:id="7bea8088-b2ff-4f24-88f8-08bdf044fb0a" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+    timestamp: now(),
+    status: vars.httpStatus,
+    error: "Not Found",
+    message: "Cannot delete: Customer with ID " ++ (vars.customerId default "") ++ " not found",
+    correlationId: correlationId
+}	]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<logger level="INFO" doc:name="Logger" doc:id="104bc678-6ad7-4db9-9725-5d016a0a0ed9" message="[Customer Demographics API] Cannot delete - customer not found: #[vars.customerId]"/>
+			</otherwise>
+		</choice>
+    </sub-flow>
+
+</mule>

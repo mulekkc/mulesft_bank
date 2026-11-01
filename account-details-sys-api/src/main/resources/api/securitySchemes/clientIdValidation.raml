@@ -1,0 +1,30 @@
+#%RAML 1.0 SecurityScheme
+type: x-client-id-enforcement
+description: Enforce client_id and client_secret authentication headers
+describedBy:
+  headers:
+    client_id:
+      type: string
+      required: true
+      description: Application Client ID
+      example: "4a28f736e4f3465bb98ecbb547d84a32"
+    client_secret:
+      type: string
+      required: true
+      description: Application Client Secret
+      example: "98F39a04Cb794f87aBc46Ef15aDe74e0"
+  responses:
+    401:
+      description: Unauthorized - Missing or invalid credentials
+      body:
+        application/json:
+          example:
+            code: "UNAUTHORIZED"
+            message: "Client credentials are missing or invalid"
+    403:
+      description: Forbidden - Client not authorized for this API
+      body:
+        application/json:
+          example:
+            code: "FORBIDDEN"
+            message: "Client does not have access to this resource"

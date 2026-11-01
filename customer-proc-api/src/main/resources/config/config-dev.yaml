@@ -1,0 +1,28 @@
+http:
+  port: "8083"
+  host: "0.0.0.0"
+
+api:
+  id: "21260983" 
+  version: "v1"
+
+app:
+  name: "customer-proc-api"
+
+sys:
+  demographics:
+    host: "localhost"
+    port: "8081"
+    basePath: "/api/v1"
+    clientId: "18bffd596de4460696c7fd785340b791"
+    clientSecret: "385d81d11E984aa2bed3BA20537f18aa"
+    timeout: "15000"
+  accounts:
+    host: "localhost"
+    port: "8082"
+    basePath: "/api/v1"
+    clientId: "a5c9bf36642f45ab876bb67b06a79604"
+    clientSecret: "B2562A12Df864Bcb9cB06935DF751b6E"
+    timeout: "15000"
+    
+
