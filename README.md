@@ -8,7 +8,6 @@ This repository contains the complete end-to-end MuleSoft implementation for a d
 ## 📂 Project Structure
 
 ```
-c:\Users\durga\Downloads\mulesft_bank/
 ├── customer-demographics-sys-api/       # System API 1: Demographics CRUD (Port 8081)
 │   ├── pom.xml
 │   ├── mule-artifact.json
